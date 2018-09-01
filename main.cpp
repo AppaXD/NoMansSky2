@@ -2,11 +2,14 @@
 #include <iostream>
 #include <fstream>
 #include <string>
+#include <chrono>
+#include <random>
+#include <algorithm>
 
 #include "Player.hpp"
 #include "Weapon.hpp"
 #include "Entity.hpp"
-#include "Collision.hpp" // not by me! obb collision from https://github.com/SFML/SFML/wiki/Source%3A-Simple-Collision-Detection-for-SFML-2
+#include "Collision.hpp" // not by me! obb and pp collision from https://github.com/SFML/SFML/wiki/Source%3A-Simple-Collision-Detection-for-SFML-2
 #include "Enemy.hpp"
 
 std::string assets = "assets/";
@@ -15,6 +18,15 @@ std::vector<sf::Texture> textures;
 sf::Texture texture;
 
 float pi = 3.14159265;
+
+auto seed = std::chrono::high_resolution_clock::now().time_since_epoch().count();
+std::mt19937 gen;
+
+int rand(int min, int max)
+{
+	std::uniform_int_distribution<int> range(min, max);
+	return range(gen);
+}
 
 sf::Vector2f getCentre(sf::Vector2f size)
 {
@@ -81,11 +93,25 @@ int main()
 	sf::Sprite redLaser = createSprite(t_redLaser, true);
 	redLaser.setScale(1.f, 1.5f);
 
+	sf::Texture t_greenLaser;
+	t_greenLaser.loadFromFile(assets + "greenLaser.png");
+	sf::Sprite greenLaser = createSprite(t_greenLaser, true);
+	redLaser.setScale(1.f, 1.5f);
+
 	Player player(assets + "ship.png");
 	player.sprite.setPosition(width / 2, height / 2);
 
-	Enemy enemy(assets + "enemyBlack.png", 2, 6, 40);
-	enemy.sprite.setPosition(500, 200);
+	Enemy enemyBlack(assets + "enemyBlack.png", 2, 6, 25);
+	Enemy enemyBlue(assets + "enemyBlue.png", 3, 8, 35);
+	Enemy enemyGreen(assets + "enemyGreen.png", 5, 6, 35);
+	Enemy enemyRed(assets + "enemyRed.png", 6, 7, 40);
+
+	Enemy ENEMIES[4] = {
+		enemyBlack,
+		enemyBlue,
+		enemyGreen,
+		enemyRed
+	};
 
 	sf::Vector2f p1_offset(10, -28);
 	sf::RectangleShape point1(sf::Vector2f(3, 3));
@@ -99,10 +125,9 @@ int main()
 	point2.setOrigin(p2_offset);
 	point2.setPosition(player.sprite.getPosition());
 
-	Weapon weapon(true, 5, 5);
+	Weapon weapon(true, 7, 6);
 
 	std::vector<Enemy> enemies;
-	enemies.push_back(enemy);
 
 	sf::Vector2f acceleration;
 
@@ -115,13 +140,23 @@ int main()
 
 	bool deacceleration[4] = { false, false, false, false };
 
+	float enemiesPer10Seconds = 8;
+	float timeToSpawn = 10.f / enemiesPer10Seconds;
+
+	int stage = 0;
+
+	sf::Clock spawnrateTimer;
+	sf::Clock spawnTimer;
 	sf::Clock clock;
 	float delta;
 
-	std::vector<Entity> lasers;
+	std::vector<Entity> playerLasers;
+	std::vector<Entity> enemyLasers;
 	sf::Vector2f ppos(0, 0);
 	float angle;
 	sf::Vector2f mousePosition;
+
+	std::vector<int> removes;
 
 	bool lmbDown = false;
 
@@ -129,6 +164,8 @@ int main()
 
 	while (window.isOpen())
 	{
+		window.setView(view);
+
 		delta = clock.restart().asSeconds();
 
 		angle = rotateTowards(player.sprite.getPosition(), mousePosition);
@@ -197,7 +234,7 @@ int main()
 					Entity laser(redLaser, 0, weapon.damage);
 					laser.sprite.setPosition(bulletStart);
 					laser.sprite.setRotation(player.sprite.getRotation() - 180);
-					lasers.push_back(laser);
+					playerLasers.push_back(laser);
 				}
 			}
 			else if (event.type == sf::Event::MouseButtonReleased && event.mouseButton.button == sf::Mouse::Left)
@@ -230,8 +267,33 @@ int main()
 				Entity laser(redLaser, 0, weapon.damage);
 				laser.sprite.setPosition(bulletStart);
 				laser.sprite.setRotation(player.sprite.getRotation() - 180);
-				lasers.push_back(laser);
+				playerLasers.push_back(laser);
 			}
+		}
+
+		float t = 0.f;
+		if (spawnrateTimer.getElapsedTime().asSeconds() >= 60)
+		{
+			enemiesPer10Seconds = 10;
+			timeToSpawn = 10 / enemiesPer10Seconds;
+		}
+		else if (spawnrateTimer.getElapsedTime().asSeconds() >= 45)
+		{
+			stage = 3;
+			enemiesPer10Seconds = 9;
+			timeToSpawn = 10 / enemiesPer10Seconds;
+		}
+		else if (spawnrateTimer.getElapsedTime().asSeconds() >= 30)
+		{
+			stage = 2;
+			enemiesPer10Seconds = 7;
+			timeToSpawn = 10 / enemiesPer10Seconds;
+		}
+		else if (spawnrateTimer.getElapsedTime().asSeconds() >= 15)
+		{
+			stage = 1;
+			enemiesPer10Seconds = 5;
+			timeToSpawn = 10 / enemiesPer10Seconds;
 		}
 
 		crosshair.setPosition(mousePosition);
@@ -242,11 +304,55 @@ int main()
 		point2.setRotation(angle + 90);
 		point2.setPosition(ppos);
 
+		if (spawnTimer.getElapsedTime().asSeconds() >= timeToSpawn)
+		{
+			int w2 = width / 2;
+			int h2 = height / 2;
+
+			int x, y;
+
+			switch (rand(1, 2))
+			{
+				case 1:
+					x = rand(ppos.x - w2, ppos.x + w2);
+					switch (rand(1, 2))
+					{
+						case 1:
+							y = ppos.y - h2 - 100;
+							break;
+						case 2:
+							y = ppos.y + h2 + 100;
+							break;
+					}
+					break;
+				case 2:
+					y = rand(ppos.y - h2, ppos.y + h2);
+					switch (rand(1, 2))
+					{
+						case 1:
+							x = ppos.x - w2 - 100;
+							break;
+						case 2:
+							x = ppos.x + w2 + 100;
+							break;
+					}
+					break;
+			}
+
+			Enemy enemy = ENEMIES[rand(0, stage)];
+
+			enemy.sprite.setPosition(x, y);
+
+			spawnTimer.restart();
+			enemies.push_back(enemy);
+		}
+
 		if (!(ppos.x - 4 < mousePosition.x && ppos.x + 4 > mousePosition.x && ppos.y - 4 < mousePosition.y && ppos.y + 4 > mousePosition.y))
 		{
+			//std::cout << acceleration.y << "\n";
 			sf::Vector2f movement(1.75f * delta * acceleration.y * cos(angle * pi / 180), 1.75f * delta * acceleration.y * sin(angle * pi / 180));
 			player.sprite.move(movement);
-			view.move(movement);
+			view.setCenter(player.sprite.getPosition());
 		}
 
 		if ((!direction[0] && acceleration.y < 0) || deacceleration[0])
@@ -267,11 +373,34 @@ int main()
 		
 		window.clear();
 
-		for (int i = 0; i < lasers.size(); i++)
+		for (int i = 0; i < playerLasers.size(); i++)
 		{
-			lasers[i].move(2000, delta);
-			window.draw(lasers[i].sprite);
+			playerLasers[i].move(2000, delta);
+			window.draw(playerLasers[i].sprite);
 		}
+
+		for (int i = 0; i < enemyLasers.size(); i++)
+		{
+			enemyLasers[i].move(2000, delta);
+			window.draw(enemyLasers[i].sprite);
+
+			if (Collision::BoundingBoxTest(enemyLasers[i].sprite, player.sprite))
+			{
+				player.health -= enemyLasers[i].damage;
+				std::cout << player.health << "\n";
+				if (player.health <= 0)
+				{
+					std::cout << "ded\n";
+				}
+				enemyLasers.erase(enemyLasers.begin() + i);
+			}
+		}
+
+		for (unsigned i = removes.size(); i-- > 0;)
+		{
+			playerLasers.erase(playerLasers.begin() + removes[i]);
+		}
+		removes.clear();
 
 		for (int i = 0; i < enemies.size(); i++)
 		{
@@ -303,12 +432,12 @@ int main()
 					enemies[i].deacceleration[1] = false;
 				}
 			}
-
+			
 			if (distance > 360)
 			{
-				enemies[i].sprite.move(delta * enemies[i].acceleration * -cos(enemyAngle), delta * 150.f * -sin(enemyAngle));
+				enemies[i].sprite.move(delta * enemies[i].acceleration * -cos(enemyAngle), delta * enemies[i].acceleration * -sin(enemyAngle));
 			}
-
+			
 			else if (Collision::BoundingBoxTest(enemies[i].sprite, player.sprite) && Collision::PixelPerfectTest(enemies[i].sprite, player.sprite))
 			{
 				sf::Vector2f newAcceleration = sf::Vector2f(-acceleration.x / 1.5, -acceleration.y / 1.5);
@@ -361,10 +490,36 @@ int main()
 				acceleration = newAcceleration;
 			}
 
-			window.draw(enemies[i].sprite);
-		}
+			if (distance < 875 && enemies[i].weapon.canShoot())
+			{
+				int accuracy = floor(distance / 4);
 
-		window.setView(view);
+				int x = ppos.x + rand(-60 - accuracy, 60 + accuracy);
+				int y = ppos.y + rand(-60 - accuracy, 60 + accuracy);
+
+				Entity laser(greenLaser, 1, weapon.damage);
+				laser.sprite.setPosition(enemyPos);
+				laser.sprite.setRotation(rotateTowards(enemyPos, sf::Vector2f(x, y)) - 90);
+				enemyLasers.push_back(laser);
+			}
+
+			window.draw(enemies[i].sprite);
+
+			for (int j = 0; j < playerLasers.size(); j++)
+			{
+				if (enemies[i].sprite.getGlobalBounds().intersects(playerLasers[j].sprite.getGlobalBounds()))
+				{
+					enemies[i].health -= playerLasers[j].damage;
+					if(!(std::find(removes.begin(), removes.end(), j)!= removes.end())) removes.push_back(j);
+
+					if (enemies[i].health <= 0)
+					{
+						enemies.erase(enemies.begin() + i);
+						j = playerLasers.size();
+					}
+				}
+			}
+		}
 
 		window.draw(player.sprite);
 		window.draw(crosshair);

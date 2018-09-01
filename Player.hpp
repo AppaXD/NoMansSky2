@@ -9,7 +9,7 @@ private:
 	sf::Texture texture;
 public:
 	sf::Sprite sprite;
-	int health;
+	short health = 100;
 	bool left = false;
 	Player::Player(std::string texturePath);
 	//Player::Player(std::string texturePath, Weapon playerWeapon);
